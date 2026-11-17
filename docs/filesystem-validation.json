@@ -1,0 +1,26 @@
+[
+  {
+    "original_bytes": 262412,
+    "sha256": "f749c739b50be009c85d380d7bdfacc76a3fb7c417b7690a8d52d85143c7907f",
+    "hardlink_errno": 45,
+    "recovered_sha256": "f749c739b50be009c85d380d7bdfacc76a3fb7c417b7690a8d52d85143c7907f",
+    "compressed_bytes": 263436,
+    "exact_roundtrip": true,
+    "overwrite_protected": true,
+    "temporaries_clean": true,
+    "filesystem": "ExFAT",
+    "medium": "Imagen de disco macOS, 64 MiB; no USB f\u00edsico"
+  },
+  {
+    "original_bytes": 262412,
+    "sha256": "f749c739b50be009c85d380d7bdfacc76a3fb7c417b7690a8d52d85143c7907f",
+    "hardlink_errno": 45,
+    "recovered_sha256": "f749c739b50be009c85d380d7bdfacc76a3fb7c417b7690a8d52d85143c7907f",
+    "compressed_bytes": 263436,
+    "exact_roundtrip": true,
+    "overwrite_protected": true,
+    "temporaries_clean": true,
+    "filesystem": "MS-DOS FAT32",
+    "medium": "Imagen de disco macOS, 64 MiB; no USB f\u00edsico"
+  }
+]
