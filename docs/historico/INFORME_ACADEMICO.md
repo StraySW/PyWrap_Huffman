@@ -1,5 +1,7 @@
 # PyWrap: compresión y descompresión sin pérdida mediante el algoritmo de Huffman
 
+> **Documento histórico de una versión anterior.** Las referencias a tres pestañas, módulos de análisis/decodificación, benchmarks, 59 pruebas y sus mediciones no describen la versión simplificada actual. Para ejecutar y presentar esta copia, usa [README](../README.md), [DEMO](DEMO.md) y el [registro actual](../VALIDACION.md). Las capturas de `docs/screenshots/` también pertenecen a la interfaz anterior.
+
 **Informe académico**
 
 | | |

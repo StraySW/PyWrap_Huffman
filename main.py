@@ -1,4 +1,4 @@
-"""Iniciar la interfaz gráfica: python3 main.py."""
+"""Iniciar la interfaz gráfica: python main.py."""
 import sys
 
 
@@ -7,7 +7,7 @@ def main() -> int:
         import tkinter as tk
     except ImportError:
         print('PyWrap necesita Tkinter. Instala Python con soporte Tcl/Tk. '
-              'Consulta la sección macOS del README. La consola cli.py sigue disponible.',
+              'Consulta README.md. La consola cli.py sigue disponible.',
               file=sys.stderr)
         return 1
     # Tk 8.5 de las herramientas de Apple puede abortar el proceso nativo

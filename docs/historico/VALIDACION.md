@@ -1,5 +1,81 @@
 # Registro de verificación
 
+## Simplificación adicional · 17 de noviembre de 2026
+
+Esta es la revisión actual; las secciones siguientes conservan el historial.
+
+- La interfaz pasa de selector de operación, botón de ejecución y cuatro tarjetas
+  a una selección de archivo, dos botones y un resultado. Se conservan las
+  estadísticas en el resultado y en la consola.
+- Un hilo procesa el archivo y una cola entrega el resultado al hilo de Tk.
+  La ventana sigue respondiendo. No se permiten operaciones simultáneas ni el
+  cierre normal durante una operación. No se añadió cancelación.
+- `_operation` reúne apertura, destino, temporal y limpieza. La compresión
+  calcula BS con las frecuencias y escribe el encabezado una sola vez.
+- Se conservan el formato, los desempates, la API de consola y la protección
+  contra reemplazos no autorizados. Los cuatro fixtures siguen produciendo
+  exactamente los mismos bytes.
+- **24 pruebas aprobadas, 0 omitidas**, en Windows con Python 3.13.17 y Tk 8.6.
+- La nueva prueba con **8 MiB** usa los 256 bytes, vigila que ninguna lectura
+  exceda 64 KiB ni se solicite leer todo el archivo, y acota las escrituras.
+  Elimina el original antes de recuperar y comprueba SHA-256. No quedan temporales.
+- Otra prueba recorre más de tres bloques con códigos de más de 8 bits y
+  comprueba la recuperación exacta al cruzar límites de bloques y bytes.
+- Las pruebas de GUI verifican compresión, descompresión, rechazo y aceptación
+  de reemplazo, errores y procesamiento de eventos mientras el trabajador espera.
+
+No hay filtros por tipo de archivo ni un tope de tamaño en el código. El límite
+práctico depende del espacio, el sistema de archivos y el tiempo. La prueba de
+8 MiB no constituye una verificación con archivos de varios GiB. Algunos archivos
+pueden crecer con Huffman. Se mantiene la limitación de no detectar cambios del
+original entre lecturas y la ausencia de checksum en el formato.
+
+## Versión simplificada · Windows · 17 de noviembre de 2026
+
+Esta sección corresponde al código actual. Las fases que siguen son registros
+históricos de otra versión: sus 59 pruebas, pestañas educativas, benchmarks y
+módulos ausentes no describen esta copia.
+
+Entorno preparado: Python **3.13.17**, Tcl/Tk **8.6**, entorno virtual `.venv`,
+sin dependencias de pip. Python se instaló para el usuario mediante el paquete
+oficial `Python.Python.3.13` de winget.
+
+Comprobaciones realizadas:
+
+- Suite: **20 pruebas aprobadas, 0 omitidas** con
+  `.\.venv\Scripts\python.exe -m unittest discover -s tests -v`.
+- Compilación de `main.py`, `cli.py`, `pywrap/` y `tests/` sin errores.
+- La prueba GUI abre Tk real, comprime, recupera y verifica la cancelación de
+  reemplazo. Sus salidas se aíslan en un directorio temporal.
+- Los cuatro fixtures históricos se recuperan correctamente y se recomprimen
+  con bytes idénticos.
+- Consola: `anita patina`, **12 B → 28 B → 12 B**, NF=5, TREE=22 B, BS=6,
+  ZIP=4 B. SHA-256 original y recuperado:
+  `6e07e9bbd00943f73c3379b39e61c07eafdf2f01cd4b5eb6ce60e0c33614d440`.
+- Repetir la compresión sin `--overwrite` devuelve código 1 y conserva el destino.
+- Se reprodujo y corrigió la pérdida de la salida anterior cuando fallaba su
+  reemplazo: ahora se usa `os.replace` sin borrado previo. Se prueba en ambas
+  operaciones, incluida la limpieza de temporales.
+- Se prueba que un destino creado por otro proceso durante la operación no se
+  sobrescribe sin autorización.
+- Se rechazan bits de relleno distintos de cero y códigos distintos de 0 para
+  árboles de un solo símbolo, conservando cualquier salida anterior.
+- Se añadió `Iniciar_PyWrap.cmd` y se actualizaron README, instalación y demo
+  para la ventana simplificada que realmente contiene el repositorio.
+- El acceso `.cmd` se inició desde una carpeta distinta al proyecto y creó una
+  ventana titulada `PyWrap | Compresor Huffman`, con el proceso respondiendo.
+- `fc.exe /b data\source\anita.txt data\unwrp\anita.txt` confirmó que no hay
+  diferencias. Las salidas de esta demostración quedaron disponibles en `data/`.
+
+La herramienta de inspección visual de Windows falló al conectar con su canal
+nativo (`The system cannot find the file specified`, error 2), incluso tras
+reiniciarla. La prueba de Tk y el arranque del proceso sí funcionaron; esta
+revisión no afirma haber comprobado visualmente la distribución de la ventana.
+
+Límites: la interfaz ejecuta operaciones de forma síncrona; el formato no tiene
+checksum; no se detectan cambios del original entre las dos lecturas. No se
+verificaron en esta revisión macOS/Linux, WinWrap/Java ni USB físico.
+
 ## Fase 4 · Entrega y sustentación
 
 Fecha: 14 de noviembre de 2026. No se modificaron el algoritmo, el formato, la interfaz ni las pruebas.

@@ -3,7 +3,6 @@ import argparse
 from pathlib import Path
 
 from pywrap import compress, decompress
-from pywrap.reporting import describe_result
 
 
 def main(argv=None) -> int:
@@ -22,7 +21,7 @@ def main(argv=None) -> int:
         result = operation(args.file, folder, overwrite=args.overwrite)
     except (OSError, ValueError) as error:
         parser.exit(1, f'Error de PyWrap: {error}\n')
-    print(describe_result(result))
+    print(result)
     return 0
 
 

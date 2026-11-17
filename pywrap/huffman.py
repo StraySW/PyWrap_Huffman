@@ -13,13 +13,12 @@ Caso especial archivo vacío: exactamente 2 bytes (NF=0, BS=0).
 from __future__ import annotations
 
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass
 from heapq import heappop, heappush
-from itertools import count
 import os
 from pathlib import Path
 import tempfile
-from typing import BinaryIO
 
 
 CHUNK_SIZE = 64 * 1024
@@ -48,55 +47,33 @@ class Result:
     destination: Path
     input_bytes: int
     output_bytes: int
-    internal_nodes: int
-    tree_bytes: int
-    payload_bytes: int
-    final_bits: int
-    action: str
 
-    @property
-    def symbol_count(self) -> int:
-        return self.internal_nodes + 1 if self.tree_bytes else 0
-
-    @property
-    def node_count(self) -> int:
-        return 2 * self.internal_nodes + 1 if self.tree_bytes else 0
-
-    @property
-    def original_bytes(self) -> int:
-        return self.input_bytes if self.action == 'compress' else self.output_bytes
-
-    @property
-    def compressed_bytes(self) -> int:
-        return self.output_bytes if self.action == 'compress' else self.input_bytes
-
-    @property
-    def savings_percentage(self) -> float:
-        if not self.original_bytes:
-            return 0.0
-        return (1.0 - self.compressed_bytes / self.original_bytes) * 100.0
+    def __str__(self) -> str:
+        return (f'Guardado en: {self.destination}\n'
+                f'Entrada: {self.input_bytes:,} bytes\n'
+                f'Salida: {self.output_bytes:,} bytes')
 
 
 def _build_tree(freq: Counter[int]) -> Node | None:
     """Construye el árbol de Huffman con cola de prioridad mínima."""
-    heap: list[tuple[int, int, int, Node]] = []
-    counter = count()
+    heap: list[tuple[int, int, Node]] = []
     for symbol in sorted(freq):
         node = Node(frequency=freq[symbol], symbol=symbol, minimum=symbol)
-        heappush(heap, (node.frequency, node.minimum, next(counter), node))
+        heappush(heap, (node.frequency, node.minimum, node))
     if not heap:
         return None
     while len(heap) > 1:
-        _, _, _, left = heappop(heap)
-        _, _, _, right = heappop(heap)
+        _, _, left = heappop(heap)
+        _, _, right = heappop(heap)
         parent = Node(
             frequency=left.frequency + right.frequency,
             left=left,
             right=right,
             minimum=min(left.minimum, right.minimum),
         )
-        heappush(heap, (parent.frequency, parent.minimum, next(counter), parent))
-    return heap[0][3]
+        # Los subárboles no comparten símbolos: sus mínimos son distintos.
+        heappush(heap, (parent.frequency, parent.minimum, parent))
+    return heap[0][2]
 
 
 def _codes(root: Node) -> dict[int, tuple[int, int]]:
@@ -177,7 +154,7 @@ def output_path(input_file: Path, folder: Path, action: str) -> Path:
         if input_file.suffix.lower() != '.pkz':
             raise ValueError('Selecciona un archivo con extensión .pkz para descomprimir.')
         name = input_file.name[:-4]
-        if not name:
+        if name in ('', '.', '..'):
             raise ValueError('El archivo .pkz no tiene un nombre original válido.')
     dest = folder / name
     if dest.resolve() == input_file.resolve():
@@ -185,212 +162,144 @@ def output_path(input_file: Path, folder: Path, action: str) -> Path:
     return dest
 
 
-def compress(input_file: str | Path, output_folder: str | Path, *,
-             overwrite: bool = False) -> Result:
-    """Comprime un archivo usando el algoritmo Huffman."""
+def _publish(temporary: Path, destination: Path, *, overwrite: bool) -> None:
+    """Publica sin borrar antes el destino ni reemplazarlo sin autorización."""
+    if overwrite:
+        os.replace(temporary, destination)
+    elif os.name == 'nt':
+        # En Windows rename falla si otro proceso ya creó el destino.
+        os.rename(temporary, destination)
+    else:
+        # En POSIX rename sí reemplaza: un enlace reserva el nombre sin pisarlo.
+        os.link(temporary, destination)
+        temporary.unlink()
+
+
+@contextmanager
+def _operation(input_file, output_folder, action, overwrite):
+    """Comparte apertura, destino seguro y limpieza entre ambas operaciones."""
     source = Path(input_file).expanduser().resolve()
     if not source.is_file():
         raise FileNotFoundError(f'No se encuentra el archivo de entrada: {source}')
-
-    out_dir = Path(output_folder).resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    destination = output_path(source, out_dir, 'compress')
-
+    folder = Path(output_folder).expanduser().resolve()
+    folder.mkdir(parents=True, exist_ok=True)
+    destination = output_path(source, folder, action)
     if destination.exists() and not overwrite:
         raise FileExistsError(f'El archivo ya existe: {destination}.')
 
-    input_size = source.stat().st_size
-    freq: Counter[int] = Counter()
-    with source.open('rb') as f:
-        while chunk := f.read(CHUNK_SIZE):
-            freq.update(chunk)
-
-    root = _build_tree(freq)
-    tree_blob, nf = _serialize(root) if root else (b'', 0)
-    tree_len = len(tree_blob)
-
-    with tempfile.NamedTemporaryFile(prefix='pkz_', dir=out_dir, delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
+    temporary = None
     try:
-        with tmp_path.open('wb') as out:
-            # 1. NF (1 byte)
-            out.write(bytes((nf,)))
-            # 2. TREE
-            out.write(tree_blob)
-            # 3. Posición para BS
-            bs_pos = out.tell()
-            out.write(b'\x00')
+        with source.open('rb') as inp, tempfile.NamedTemporaryFile(
+                mode='wb', prefix='.pywrap-', suffix='.tmp', dir=folder,
+                delete=False) as out:
+            temporary = Path(out.name)
+            yield source, destination, inp, out
+        _publish(temporary, destination, overwrite=overwrite)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
-            payload_bytes = 0
-            bs = 0
 
-            if root is not None:
-                code_map = _codes(root)
-                acc = 0
-                remaining = 0
-                buf = bytearray()
+def compress(input_file: str | Path, output_folder: str | Path, *,
+             overwrite: bool = False) -> Result:
+    """Comprime cualquier archivo por bloques, sin cargarlo completo en memoria."""
+    with _operation(input_file, output_folder, 'compress', overwrite) as files:
+        source, destination, inp, out = files
+        # 1. Contar los bytes leyendo bloques pequeños.
+        freq: Counter[int] = Counter()
+        input_size = 0
+        while chunk := inp.read(CHUNK_SIZE):
+            freq.update(chunk)
+            input_size += len(chunk)
 
-                with source.open('rb') as f:
-                    while chunk := f.read(CHUNK_SIZE):
-                        for symbol in chunk:
-                            code, length = code_map[symbol]
-                            acc = (acc << length) | code
-                            remaining += length
-                            while remaining >= 8:
-                                remaining -= 8
-                                buf.append((acc >> remaining) & 0xFF)
-                                acc &= (1 << remaining) - 1
-                        if len(buf) >= CHUNK_SIZE:
-                            out.write(buf)
-                            payload_bytes += len(buf)
-                            buf.clear()
+        # 2. Construir el árbol, los códigos y el encabezado.
+        root = _build_tree(freq)
+        tree_blob, nf = _serialize(root) if root else (b'', 0)
+        codes = _codes(root) if root else {}
+        bit_count = sum(freq[symbol] * length for symbol, (_, length) in codes.items())
+        bs = (bit_count - 1) % 8 + 1 if bit_count else 0
+        out.write(bytes((nf,)) + tree_blob + bytes((bs,)))
 
-                if remaining > 0:
-                    buf.append((acc << (8 - remaining)) & 0xFF)
-                    bs = remaining
-                else:
-                    bs = 8 if payload_bytes or buf else 0
+        # 3. Volver a leer y guardar los códigos en grupos de ocho bits.
+        inp.seek(0)
+        acc = remaining = 0
+        buf = bytearray()
+        while chunk := inp.read(CHUNK_SIZE):
+            for symbol in chunk:
+                code, length = codes[symbol]
+                acc = (acc << length) | code
+                remaining += length
+                while remaining >= 8:
+                    remaining -= 8
+                    buf.append((acc >> remaining) & 0xFF)
+                    acc &= (1 << remaining) - 1
+            out.write(buf)
+            buf.clear()
+        if remaining:
+            out.write(bytes((acc << (8 - remaining),)))
+        output_size = out.tell()
 
-                if buf:
-                    out.write(buf)
-                    payload_bytes += len(buf)
-
-                # Actualizar BS
-                out.seek(bs_pos)
-                out.write(bytes((bs,)))
-            else:
-                # Archivo vacío: BS=0
-                out.seek(bs_pos)
-                out.write(b'\x00')
-
-        # Reemplazo seguro
-        if destination.exists() and overwrite:
-            destination.unlink()
-        os.replace(tmp_path, destination)
-    except Exception:
-        tmp_path.unlink(missing_ok=True)
-        raise
-
-    output_size = destination.stat().st_size
-    return Result(
-        source=source,
-        destination=destination,
-        input_bytes=input_size,
-        output_bytes=output_size,
-        internal_nodes=nf,
-        tree_bytes=tree_len,
-        payload_bytes=payload_bytes,
-        final_bits=bs,
-        action='compress',
-    )
+    return Result(source, destination, input_size, output_size)
 
 
 def decompress(input_file: str | Path, output_folder: str | Path, *,
                overwrite: bool = False) -> Result:
-    """Descomprime un archivo .pkz recuperando los datos originales."""
-    source = Path(input_file).expanduser().resolve()
-    if not source.is_file():
-        raise FileNotFoundError(f'No se encuentra el archivo de entrada: {source}')
+    """Recupera los bytes originales leyendo y escribiendo por bloques."""
+    with _operation(input_file, output_folder, 'decompress', overwrite) as files:
+        source, destination, inp, out = files
+        source_size = os.fstat(inp.fileno()).st_size
+        if source_size < 2:
+            raise FormatError('El archivo es demasiado pequeño para ser un .pkz válido.')
+        # 1. Leer el encabezado y reconstruir el árbol guardado.
+        nf = inp.read(1)[0]
 
-    out_dir = Path(output_folder).resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    destination = output_path(source, out_dir, 'decompress')
+        if source_size == 2 and nf == 0:
+            if inp.read(1) != b'\x00':
+                raise FormatError('Un archivo vacío debe tener BS=0.')
+        else:
+            tree_len = 2 * (2 * nf + 1)
+            tree_blob = inp.read(tree_len)
+            if len(tree_blob) != tree_len:
+                raise FormatError('Árbol Huffman truncado en el archivo.')
+            tree = _deserialize(tree_blob, nf)
+            header_bs = inp.read(1)
+            if not header_bs or not 1 <= header_bs[0] <= 8:
+                raise FormatError('El byte BS debe estar entre 1 y 8.')
+            bs = header_bs[0]
+            payload_size = source_size - inp.tell()
+            if payload_size <= 0:
+                raise FormatError('No se encontraron datos codificados.')
 
-    if destination.exists() and not overwrite:
-        raise FileExistsError(f'El archivo ya existe: {destination}.')
-
-    source_size = source.stat().st_size
-    if source_size < 2:
-        raise FormatError('El archivo es demasiado pequeño para ser un archivo .pkz válido.')
-
-    with tempfile.NamedTemporaryFile(prefix='unpkz_', dir=out_dir, delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-
-    try:
-        with source.open('rb') as inp, tmp_path.open('wb') as out:
-            header_nf = inp.read(1)
-            if not header_nf:
-                raise FormatError('Encabezado incompleto.')
-            nf = header_nf[0]
-
-            # Caso especial vacío: 2 bytes (NF=0, BS=0)
-            if source_size == 2 and nf == 0:
-                bs = inp.read(1)[0]
-                if bs != 0:
-                    raise FormatError('Formato inválido: archivo vacío debe tener BS=0.')
-                tree_len = 0
-                payload_size = 0
-            else:
-                tree_len = 2 * (2 * nf + 1)
-                tree_blob = inp.read(tree_len)
-                if len(tree_blob) != tree_len:
-                    raise FormatError('Árbol Huffman truncado en el archivo.')
-                tree = _deserialize(tree_blob, nf)
-
-                header_bs = inp.read(1)
-                if not header_bs:
-                    raise FormatError('Falta el byte BS en el archivo.')
-                bs = header_bs[0]
-                if not (1 <= bs <= 8):
-                    raise FormatError('El byte BS está fuera del rango válido (1..8).')
-
-                payload_size = source_size - inp.tell()
-                if payload_size <= 0:
-                    raise FormatError('No se encontraron datos codificados en el archivo.')
-
-                # Decodificación bit a bit
-                current = tree
-                buf = bytearray()
-                bytes_left = payload_size
-
-                while bytes_left > 0:
-                    block = inp.read(min(CHUNK_SIZE, bytes_left))
-                    if not block:
-                        raise FormatError('Datos ZIP truncados inesperadamente.')
-                    bytes_left -= len(block)
-
-                    for idx, byte_val in enumerate(block):
-                        is_last = (bytes_left == 0 and idx == len(block) - 1)
-                        valid_bits = bs if is_last else 8
-
+            # 2. Seguir los bits hasta una hoja y escribir su byte.
+            current = tree
+            buf = bytearray()
+            bytes_left = payload_size
+            while bytes_left:
+                block = inp.read(min(CHUNK_SIZE, bytes_left))
+                if not block:
+                    raise FormatError('Datos ZIP truncados inesperadamente.')
+                bytes_left -= len(block)
+                for idx, value in enumerate(block):
+                    last = bytes_left == 0 and idx == len(block) - 1
+                    valid_bits = bs if last else 8
+                    if last and value & ((1 << (8 - valid_bits)) - 1):
+                        raise FormatError('Los bits de relleno deben ser cero.')
+                    if tree.is_leaf:
+                        if value:
+                            raise FormatError('El código de un símbolo único debe ser 0.')
+                        buf.extend(bytes((tree.symbol,)) * valid_bits)
+                    else:
                         for shift in range(7, 7 - valid_bits, -1):
-                            bit = (byte_val >> shift) & 1
-                            if tree.is_leaf:
-                                buf.append(tree.symbol)
-                            else:
-                                current = current.right if bit else current.left
-                                if current is None:
-                                    raise FormatError('Ruta inválida en el árbol Huffman.')
-                                if current.is_leaf:
-                                    buf.append(current.symbol)
-                                    current = tree
+                            current = current.right if (value >> shift) & 1 else current.left
+                            if current.is_leaf:
+                                buf.append(current.symbol)
+                                current = tree
+                    if len(buf) >= CHUNK_SIZE:
+                        out.write(buf)
+                        buf.clear()
+            if current is not tree:
+                raise FormatError('Los datos terminan en un código incompleto.')
+            out.write(buf)
+        output_size = out.tell()
 
-                            if len(buf) >= CHUNK_SIZE:
-                                out.write(buf)
-                                buf.clear()
-
-                if current is not tree:
-                    raise FormatError('Los datos codificados terminan en un nodo intermedio.')
-                if buf:
-                    out.write(buf)
-
-        if destination.exists() and overwrite:
-            destination.unlink()
-        os.replace(tmp_path, destination)
-    except Exception:
-        tmp_path.unlink(missing_ok=True)
-        raise
-
-    output_size = destination.stat().st_size
-    return Result(
-        source=source,
-        destination=destination,
-        input_bytes=source_size,
-        output_bytes=output_size,
-        internal_nodes=nf,
-        tree_bytes=tree_len,
-        payload_bytes=payload_size,
-        final_bits=bs,
-        action='decompress',
-    )
+    return Result(source, destination, source_size, output_size)

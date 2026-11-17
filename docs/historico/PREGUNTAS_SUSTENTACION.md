@@ -1,5 +1,7 @@
 # Preguntas probables en la sustentación
 
+> **Documento histórico de una versión anterior.** Las referencias a tres pestañas, módulos de análisis/decodificación, benchmarks, 59 pruebas y sus mediciones no describen la versión simplificada actual. Para ejecutar y presentar esta copia, usa [README](../README.md), [DEMO](DEMO.md) y el [registro actual](../VALIDACION.md). Las capturas de `docs/screenshots/` también pertenecen a la interfaz anterior.
+
 Las respuestas describen **lo que hace nuestro código**, con referencias a los archivos donde se puede comprobar. Responde con tus palabras. Si el jurado pide evidencia, abre el archivo indicado.
 
 Abreviaturas: *n* = bytes del archivo; *k* = símbolos distintos (≤ 256).
@@ -109,7 +111,7 @@ Porque en un archivo no vacío el último byte siempre tiene al menos un bit vá
 
 **No** se guardan el nombre (se conserva en el nombre externo: `foto.jpg.pkz → foto.jpg`), la longitud original ni un checksum.
 
-### 15. ¿Por qué NF cuenta nodos internos y no hojas?
+### 15. ¿Por qué NF cuenta nodos internos y no hojasí
 
 Porque cabe en un byte. Con 256 valores de byte posibles hay como máximo 256 hojas, que **no** caben en un byte (0–255), pero sí 255 nodos internos. A partir de NF se calcula exactamente cuántos bytes ocupa TREE.
 

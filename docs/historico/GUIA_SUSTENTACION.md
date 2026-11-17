@@ -1,5 +1,7 @@
 # Guía de sustentación de PyWrap (10–15 minutos)
 
+> **Documento histórico de una versión anterior.** Las referencias a tres pestañas, módulos de análisis/decodificación, benchmarks, 59 pruebas y sus mediciones no describen la versión simplificada actual. Para ejecutar y presentar esta copia, usa [README](../README.md), [DEMO](DEMO.md) y el [registro actual](../VALIDACION.md). Las capturas de `docs/screenshots/` también pertenecen a la interfaz anterior.
+
 Esta guía no es un guion para memorizar. Cada bloque tiene:
 
 - la **idea clave** que debes poder decir con tus propias palabras;
@@ -73,7 +75,7 @@ Si te quedan menos de 10 minutos, reduce los bloques 6 y 9 a una frase cada uno 
 
 **Cómo se hace en el código:** se lee el archivo en bloques de 1 MiB y se cuenta con un `Counter` (`files._frequencies`). Hay como máximo 256 entradas, una por valor de byte posible.
 
-**Comprueba que lo entiendes:** ¿por qué hablamos de bytes y no de letras? Porque en UTF-8 una `ñ` ocupa 2 bytes. PyWrap no interpreta texto: cuenta bytes, y por eso sirve para cualquier tipo de archivo.
+**Comprueba que lo entiendes:** ¿por qué hablamos de bytes y no de letrasí Porque en UTF-8 una `ñ` ocupa 2 bytes. PyWrap no interpreta texto: cuenta bytes, y por eso sirve para cualquier tipo de archivo.
 
 ## 4. Construcción y recorrido del árbol (2:00)
 
