@@ -1,38 +1,8 @@
 __pycache__/
 *.py[cod]
-.pytest_cache/
-.vscode/
-data/wrp/*
-data/unwrp/*
-!data/wrp/.gitkeep
-!data/unwrp/.gitkeep
-
-# Metadatos del sistema (también dentro de subdirectorios).
 .DS_Store
-._*
-Thumbs.db
-Desktop.ini
-
-# Temporales de PyWrap, editores y herramientas de desarrollo.
-.pywrap-*.tmp
-*.tmp
-*.swp
-*.swo
-*~
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
 .venv/
-venv/
-build/
-dist/
-*.egg-info/
-
-# Archivo grande generado durante la demostración (docs/DEMO.md).
-data/source/demo_*
-
-# Guía técnica generada en PDF
-*.pdf
-Guia_Tecnica_PyWrap_Huffman.pdf
-docs/*.pdf
+*.pkz
+*.huf
+recuperados/
+!Descomprimir estos archivos/*.pkz
