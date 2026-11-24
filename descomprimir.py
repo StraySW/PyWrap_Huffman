@@ -10,8 +10,8 @@ def descomprimir(archivo, salida=None):
     datos = ruta.read_bytes()
 
     recuperado = bytearray()
-    if datos != b"\x00\x00":  # Dos ceros representan un archivo vacío.
-        # 1. NF indica los nodos internos. El árbol tiene 2 * NF + 1 nodos.
+    if datos != b"\x00\x00":
+        # Calcular dónde termina el árbol.
         if not datos:
             raise ValueError("Falta la cabecera del archivo comprimido")
         nf = datos[0]
@@ -19,7 +19,7 @@ def descomprimir(archivo, salida=None):
         if len(datos) < fin_arbol + 2:
             raise ValueError("Faltan datos de TREE, BS o ZIP")
 
-        # 2. Leer TREE en preorden. Cada nodo ocupa dos bytes.
+        # Leer el árbol.
         posicion = 1
         simbolos = set()
 
@@ -29,12 +29,12 @@ def descomprimir(archivo, salida=None):
                 raise ValueError("Árbol incompleto")
             tipo, valor = datos[posicion:posicion + 2]
             posicion += 2
-            if tipo == 1:                 # Hoja (símbolo).
+            if tipo == 1:
                 if valor in simbolos:
                     raise ValueError("Símbolo repetido en TREE")
                 simbolos.add(valor)
                 return valor
-            if (tipo, valor) != (0, 0):   # Nodo interno.
+            if (tipo, valor) != (0, 0):
                 raise ValueError("Nodo inválido en TREE")
             return (leer_arbol(), leer_arbol())
 
@@ -42,16 +42,16 @@ def descomprimir(archivo, salida=None):
         if posicion != fin_arbol:
             raise ValueError("TREE no coincide con NF")
 
-        # 3. Leer los bits de ZIP. Del último byte solo valen los primeros BS bits.
+        # Revisar los bits válidos y el relleno.
         bs = datos[fin_arbol]
         zip_bytes = datos[fin_arbol + 1:]
         if not 1 <= bs <= 8:
             raise ValueError("BS debe estar entre 1 y 8")
-        if "1" in f"{zip_bytes[-1]:08b}"[bs:]:  # Lo que sigue a BS es relleno.
+        if "1" in f"{zip_bytes[-1]:08b}"[bs:]:
             raise ValueError("Los bits de relleno no son cero")
 
-        # 4. Decodificar: recorrer el árbol desde la raíz con cada bit válido.
-        if isinstance(raiz, int):        # Un solo símbolo: cada bit válido es una copia.
+        # Recuperar los bytes usando el árbol.
+        if isinstance(raiz, int):
             if any(zip_bytes):
                 raise ValueError("El símbolo único debe tener código 0")
             cantidad = (len(zip_bytes) - 1) * 8 + bs
@@ -61,14 +61,14 @@ def descomprimir(archivo, salida=None):
             for indice, byte in enumerate(zip_bytes, start=1):
                 validos = bs if indice == len(zip_bytes) else 8
                 for bit in f"{byte:08b}"[:validos]:
-                    nodo = nodo[int(bit)]  # 0=izquierda, 1=derecha.
+                    nodo = nodo[int(bit)]
                     if isinstance(nodo, int):
                         recuperado.append(nodo)
                         nodo = raiz
             if nodo is not raiz:
                 raise ValueError("ZIP termina a mitad de un código")
 
-    # 5. Guardar el contenido recuperado sin sobrescribir archivos.
+    # Guardar el archivo recuperado.
     nombre = ruta.name[:-4]
     if not salida and nombre in ("", ".", ".."):
         raise ValueError("El archivo no tiene un nombre original válido")
