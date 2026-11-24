@@ -1,4 +1,3 @@
-"""Descomprime Huffman .pkz/.huf. Uso: python descomprimir.py archivo.pkz [salida]"""
 import sys
 from pathlib import Path
 
@@ -8,76 +7,55 @@ def descomprimir(archivo, salida=None):
     if ruta.suffix.lower() not in (".pkz", ".huf"):
         raise ValueError("Selecciona un archivo .pkz o .huf")
     datos = ruta.read_bytes()
-
     recuperado = bytearray()
     if datos != b"\x00\x00":
-        # Calcular dónde termina el árbol.
         if not datos:
-            raise ValueError("Falta la cabecera del archivo comprimido")
-        nf = datos[0]
-        fin_arbol = 1 + 2 * (2 * nf + 1)
-        if len(datos) < fin_arbol + 2:
-            raise ValueError("Faltan datos de TREE, BS o ZIP")
+            raise ValueError("El archivo está vacío")
+        fin_arbol = 1 + 2 * (2 * datos[0] + 1)
+        if len(datos) < fin_arbol + 2 or not 1 <= datos[fin_arbol] <= 8:
+            raise ValueError("El archivo comprimido no es válido")
 
-        # Leer el árbol.
+        # Leer el árbol y recuperar los códigos.
         posicion = 1
-        simbolos = set()
-
-        def leer_arbol():
+        codigos = {}
+        def leer_arbol(codigo=""):
             nonlocal posicion
-            if posicion == fin_arbol:
-                raise ValueError("Árbol incompleto")
-            tipo, valor = datos[posicion:posicion + 2]
+            if posicion >= fin_arbol:
+                raise ValueError("El árbol está incompleto")
+            tipo, byte = datos[posicion:posicion + 2]
             posicion += 2
             if tipo == 1:
-                if valor in simbolos:
-                    raise ValueError("Símbolo repetido en TREE")
-                simbolos.add(valor)
-                return valor
-            if (tipo, valor) != (0, 0):
-                raise ValueError("Nodo inválido en TREE")
-            return (leer_arbol(), leer_arbol())
+                codigos[codigo or "0"] = byte
+            elif (tipo, byte) == (0, 0):
+                leer_arbol(codigo + "0")
+                leer_arbol(codigo + "1")
+            else:
+                raise ValueError("El árbol no es válido")
+        leer_arbol()
+        if posicion != fin_arbol or len(set(codigos.values())) != len(codigos):
+            raise ValueError("El árbol no coincide con la cabecera")
 
-        raiz = leer_arbol()
-        if posicion != fin_arbol:
-            raise ValueError("TREE no coincide con NF")
-
-        # Revisar los bits válidos y el relleno.
-        bs = datos[fin_arbol]
-        zip_bytes = datos[fin_arbol + 1:]
-        if not 1 <= bs <= 8:
-            raise ValueError("BS debe estar entre 1 y 8")
-        if "1" in f"{zip_bytes[-1]:08b}"[bs:]:
-            raise ValueError("Los bits de relleno no son cero")
-
-        # Recuperar los bytes usando el árbol.
-        if isinstance(raiz, int):
-            if any(zip_bytes):
-                raise ValueError("El símbolo único debe tener código 0")
-            cantidad = (len(zip_bytes) - 1) * 8 + bs
-            recuperado = bytes([raiz]) * cantidad
-        else:
-            nodo = raiz
-            for indice, byte in enumerate(zip_bytes, start=1):
-                validos = bs if indice == len(zip_bytes) else 8
-                for bit in f"{byte:08b}"[:validos]:
-                    nodo = nodo[int(bit)]
-                    if isinstance(nodo, int):
-                        recuperado.append(nodo)
-                        nodo = raiz
-            if nodo is not raiz:
-                raise ValueError("ZIP termina a mitad de un código")
+        # Cambiar los códigos por sus bytes originales.
+        bits = "".join(f"{byte:08b}" for byte in datos[fin_arbol + 1:])
+        validos = len(bits) - 8 + datos[fin_arbol]
+        if "1" in bits[validos:]:
+            raise ValueError("El relleno no es válido")
+        codigo = ""
+        for bit in bits[:validos]:
+            codigo += bit
+            if codigo in codigos:
+                recuperado.append(codigos[codigo])
+                codigo = ""
+        if codigo:
+            raise ValueError("El archivo termina con un código inválido")
 
     # Guardar el archivo recuperado.
-    nombre = ruta.name[:-4]
-    if not salida and nombre in ("", ".", ".."):
-        raise ValueError("El archivo no tiene un nombre original válido")
-    destino = Path(salida).expanduser() if salida else ruta.parent / "recuperados" / nombre
+    if not salida and ruta.stem in ("", ".", ".."):
+        raise ValueError("El archivo no tiene un nombre válido")
+    destino = Path(salida).expanduser() if salida else ruta.parent / "recuperados" / ruta.stem
     destino.parent.mkdir(parents=True, exist_ok=True)
-    with destino.open("xb") as archivo_salida:
-        archivo_salida.write(recuperado)
-
-    print(f"Recuperado: {len(recuperado)} bytes")
+    with destino.open("xb") as f:
+        f.write(recuperado)
     print(f"Guardado en: {destino}")
     return destino
 
@@ -88,4 +66,4 @@ if __name__ == "__main__":
     try:
         descomprimir(*sys.argv[1:])
     except (OSError, ValueError) as error:
-        sys.exit(f"No se pudo descomprimir: {error}")
+        sys.exit(str(error))
